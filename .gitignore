@@ -1,0 +1,25 @@
+# --- OS & Tool ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Server (Spring Boot / Gradle) ---
+server/build/
+server/.gradle/
+server/bin/
+server/.settings/
+server/.classpath
+server/.project
+
+# --- Client (React / Vite) ---
+client/node_modules/
+client/dist/
+client/.env.local
+
+# --- Docker Data (데이터는 커밋하지 않음) ---
+mosquitto/data/
+mosquitto/log/
+postgres_data/
+
+# --- Logs ---
+*.log

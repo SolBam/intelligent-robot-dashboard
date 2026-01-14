@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    # 도커로 띄운 PostgreSQL 연결 정보
+    url: jdbc:postgresql://localhost:5432/robot_db
+    username: ssafy
+    password: ssafy_password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      # 서버 켜질 때 DB 테이블 자동 생성 (update)
+      ddl-auto: update
+    show-sql: true # 실행되는 SQL을 로그에 보여줌
+    properties:
+      hibernate:
+        format_sql: true
+
+# MQTT 설정 (이 부분이 없으면 서버가 시작되자마자 꺼집니다)
+mqtt:
+  broker-url: tcp://localhost:1883
+  client-id: spring-boot-server
+  default-topic: /robot/#  # 로봇 관련 모든 토픽 수신
+
+# JWT 보안 키 (나중에 로그인 기능에 사용)
+jwt:
+  secret: ThisIsASecretKeyForRobotProjectMustBeVeryLongToWorkCorrectly123456
