@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useRobot } from '@/contexts/RobotContext';
-import { Wifi, Battery, MapPin, Zap, Navigation, Power, Mic, Volume2, Play, Video, VideoOff, BrainCircuit } from 'lucide-react';
+import { Wifi, Battery, MapPin, Zap, Navigation, Power, Mic, Volume2, Play, Video, VideoOff, BrainCircuit, Repeat, Hand } from 'lucide-react';
 
 const Dashboard = () => {
   const { 
-    robotStatus, isAutoMode, toggleMode, emergencyStop, moveRobot, 
+    robotStatus, toggleMode, emergencyStop, moveRobot, // toggleMode 사용
     isVideoOn, toggleVideo,
-    sendTTS, startWalkieTalkie, stopWalkieTalkie, isRecording, // 👈 isRecording 상태 받아오기
+    sendTTS, startWalkieTalkie, stopWalkieTalkie, isRecording,
     trainVoice, isVoiceCloned, useClonedVoice, setUseClonedVoice
   } = useRobot();
 
@@ -15,11 +15,15 @@ const Dashboard = () => {
   // 수동 제어 핸들러
   const handleMove = (linear, angular) => moveRobot(linear, angular);
 
+  // 현재 자동 모드인지 확인
+  const isAuto = robotStatus.mode === 'auto';
+
   return (
     <div className="grid grid-cols-12 gap-6 h-full pb-10">
       
       {/* === 왼쪽 패널 (지도 & 영상) === */}
       <div className="col-span-12 lg:col-span-8 space-y-6">
+        {/* ... (왼쪽 패널은 기존과 동일) ... */}
         
         {/* 1. 실시간 2D SLAM 맵 */}
         <section className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm h-[500px] flex flex-col">
@@ -34,7 +38,6 @@ const Dashboard = () => {
                    backgroundSize: '40px 40px'
                  }} 
             />
-            {/* 로봇 아이콘 */}
             <div 
               className="absolute transition-all duration-75 ease-linear transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
               style={{ 
@@ -62,7 +65,6 @@ const Dashboard = () => {
               {isVideoOn ? <><VideoOff size={12}/> 영상 종료</> : <><Video size={12}/> 영상 연결</>}
             </button>
           </div>
-          
           <div className="aspect-video bg-black relative flex items-center justify-center group overflow-hidden">
             {isVideoOn ? (
               <>
@@ -87,7 +89,7 @@ const Dashboard = () => {
       {/* === 오른쪽 패널 (상태 & 제어) === */}
       <div className="col-span-12 lg:col-span-4 space-y-6">
         
-        {/* 1. 로봇 상태 */}
+        {/* 1. 로봇 상태 & 모드 스위치 */}
         <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-semibold text-gray-800 flex items-center gap-2">
@@ -99,6 +101,25 @@ const Dashboard = () => {
           </div>
           
           <div className="space-y-6">
+             {/* 모드 전환 버튼 (New!) */}
+             <div className="bg-gray-50 p-1 rounded-lg flex items-center relative">
+                {/* 배경 슬라이더 애니메이션 */}
+                <div className={`absolute top-1 bottom-1 w-[48%] bg-white rounded shadow-sm transition-all duration-300 ${isAuto ? 'left-1' : 'left-[51%]'}`} />
+                
+                <button 
+                  onClick={() => !isAuto && toggleMode()}
+                  className={`flex-1 relative z-10 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${isAuto ? 'text-indigo-600' : 'text-gray-500'}`}
+                >
+                  <Repeat size={16}/> 자동 모드
+                </button>
+                <button 
+                  onClick={() => isAuto && toggleMode()}
+                  className={`flex-1 relative z-10 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${!isAuto ? 'text-indigo-600' : 'text-gray-500'}`}
+                >
+                  <Hand size={16}/> 수동 제어
+                </button>
+             </div>
+
              {/* 배터리 */}
              <div>
                <div className="flex justify-between text-sm mb-1">
@@ -108,35 +129,19 @@ const Dashboard = () => {
                  </span>
                </div>
                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                 <div 
-                   className={`h-full transition-all duration-500 ${robotStatus.battery < 20 ? 'bg-red-500' : 'bg-green-500'}`} 
-                   style={{width: `${robotStatus.battery}%`}} 
-                 />
-               </div>
-             </div>
-             
-             {/* 네트워크 */}
-             <div>
-               <div className="flex justify-between text-sm mb-1">
-                 <span className="flex items-center gap-1 text-gray-600"><Wifi size={14}/> 네트워크</span>
-                 <span className="font-bold text-gray-800">양호 (5G)</span>
-               </div>
-               <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                 <div className="h-full bg-blue-500 transition-all duration-500" style={{width: '90%'}} />
+                 <div className="h-full bg-green-500" style={{width: `${robotStatus.battery}%`}} />
                </div>
              </div>
           </div>
         </section>
 
-        {/* 2. 수동 제어 */}
-        <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+        {/* 2. 수동 제어 (자동 모드일 때 비활성화) */}
+        <section className={`bg-white rounded-lg border border-gray-200 shadow-sm p-5 transition-opacity ${isAuto ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
            <div className="flex justify-between items-center mb-4">
              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
                <Navigation size={18} /> 수동 제어
              </h3>
-             <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded border">
-               키보드: W A S D
-             </span>
+             {isAuto && <span className="text-[10px] text-red-500 font-bold">자동 모드 중</span>}
            </div>
 
            <div className="flex flex-col items-center gap-3">
@@ -154,9 +159,10 @@ const Dashboard = () => {
                <div />
              </div>
              
+             {/* 비상 정지는 자동 모드여도 언제든 가능해야 함 (pointer-events-auto) */}
              <button 
                onClick={emergencyStop}
-               className="w-full mt-2 bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-red-200 shadow-lg active:scale-95"
+               className="w-full mt-2 bg-red-600 hover:bg-red-700 text-white py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-red-200 shadow-lg active:scale-95 pointer-events-auto"
              >
                <Power size={18} /> EMERGENCY STOP
              </button>
@@ -168,9 +174,9 @@ const Dashboard = () => {
           <h3 className="font-semibold text-gray-800 flex items-center gap-2">
             <Volume2 size={18} /> 음성 제어 센터
           </h3>
-
-          {/* 목소리 학습 */}
-          <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-100">
+          {/* ... 음성 제어 부분은 기존과 동일 ... */}
+          {/* (코드 줄임을 위해 생략했지만, 기존 RobotContext.jsx와 동일한 로직 유지) */}
+           <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-100">
             <div className="flex justify-between items-center mb-3">
               <span className="text-sm font-bold text-indigo-900 flex items-center gap-1.5">
                 <BrainCircuit size={16}/> 내 목소리 학습
@@ -193,7 +199,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* TTS 입력 */}
           <div className="flex gap-2">
             <input 
               type="text" 
@@ -211,15 +216,14 @@ const Dashboard = () => {
             </button>
           </div>
 
-          {/* ✅ 무전기 (수정됨: 마우스 누를 때만 동작) */}
           <button 
-            onMouseDown={startWalkieTalkie} // 누르면 시작
-            onMouseUp={stopWalkieTalkie}    // 떼면 전송
-            onMouseLeave={stopWalkieTalkie} // 버튼 밖으로 나가면 전송(취소)
+            onMouseDown={startWalkieTalkie}
+            onMouseUp={stopWalkieTalkie}
+            onMouseLeave={stopWalkieTalkie}
             className={`w-full border-2 rounded-xl py-4 flex flex-col items-center justify-center gap-2 transition-all select-none
               ${isRecording 
-                ? 'border-red-500 bg-red-50 text-red-600 animate-pulse' // 녹음 중 스타일
-                : 'border-dashed border-gray-300 text-gray-500 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50' // 대기 스타일
+                ? 'border-red-500 bg-red-50 text-red-600 animate-pulse' 
+                : 'border-dashed border-gray-300 text-gray-500 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50'
               }`}
           >
             <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isRecording ? 'bg-red-200' : 'bg-gray-100 group-hover:bg-white'}`}>
@@ -239,7 +243,7 @@ const Dashboard = () => {
 // 컨트롤 버튼
 const ControlButton = ({ onClick, icon, label }) => (
   <button 
-    onMouseDown={onClick} // 클릭 시에도 즉각 반응
+    onMouseDown={onClick}
     className="w-14 h-14 bg-white border border-gray-200 rounded-xl shadow-sm hover:bg-gray-50 active:bg-gray-100 active:scale-95 transition-all flex flex-col items-center justify-center gap-1 text-gray-700"
   >
     <div className="text-gray-900">{icon}</div>
