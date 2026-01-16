@@ -2,24 +2,36 @@
 .DS_Store
 .vscode/
 .idea/
+*.swp
+Thumbs.db
+desktop.ini
 
 # --- Server (Spring Boot / Gradle) ---
 server/build/
 server/.gradle/
 server/bin/
-server/.settings/
-server/.classpath
-server/.project
+server/out/
+.gradletasknamecache
 
 # --- Client (React / Vite) ---
 client/node_modules/
 client/dist/
+client/.env
 client/.env.local
 
-# --- Docker Data (데이터는 커밋하지 않음) ---
+# --- Python (Robot Simulator) ---
+# 가상환경 폴더 전체 제외
+fake_robot/venv/
+fake_robot/.venv/
+**/__pycache__/
+*.py[cod]
+
+# --- Docker & DB Data ---
+# DB 데이터는 보안과 용량 문제로 절대 올리지 않습니다.
 mosquitto/data/
 mosquitto/log/
 postgres_data/
 
-# --- Logs ---
+# --- Environment & Logs ---
+.env
 *.log

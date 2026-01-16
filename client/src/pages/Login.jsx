@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext'; // 경로 확인 필요 (보통 ../contexts/AuthContext)
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, User, ArrowRight, Loader2, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 
 const Login = () => {
-  const [isLoginMode, setIsLoginMode] = useState(true); // 로그인 <-> 회원가입 전환 상태
+  const [isLoginMode, setIsLoginMode] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState(''); // 회원가입용 이름
+  const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
-  const { login, signup } = useAuth();
+  // 🚨 수정 1: signup 대신 register로 이름 변경!
+  const { login, register } = useAuth(); 
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -23,25 +24,31 @@ const Login = () => {
         // === 로그인 시도 ===
         const success = await login(email, password);
         if (success) {
-          toast.success('환영합니다!', { description: '대시보드로 이동합니다.' });
+          // toast는 AuthContext 안에서도 띄우고 있으니 중복되면 여기서 제거해도 됩니다.
           navigate('/');
-        } else {
-          toast.error('로그인 실패', { description: '이메일 또는 비밀번호를 확인해주세요.' });
         }
       } else {
         // === 회원가입 시도 ===
-        const success = await signup(email, password, name);
+        
+        // 🚨 수정 2: 데이터를 객체 하나로 묶어서 보내야 함!
+        const userData = {
+          email: email,
+          password: password,
+          name: name
+        };
+
+        // 🚨 수정 3: signup(...) 대신 register(userData) 호출
+        const success = await register(userData);
+        
         if (success) {
-          toast.success('회원가입 성공!', { description: '이제 로그인해주세요.' });
-          setIsLoginMode(true); // 로그인 모드로 자동 전환
+          setIsLoginMode(true); // 로그인 모드로 전환
           setName('');
           setPassword('');
-        } else {
-          toast.error('회원가입 실패', { description: '이미 사용 중인 이메일일 수 있습니다.' });
         }
       }
     } catch (error) {
-      toast.error('오류 발생', { description: '서버와 통신할 수 없습니다.' });
+      // AuthContext 내부에서 에러 처리를 하고 있으므로 여기서는 로그만 찍거나 생략 가능
+      console.error("Login Page Error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -62,7 +69,7 @@ const Login = () => {
           </p>
         </div>
 
-        {/* 탭 전환 버튼 (로그인 / 회원가입) */}
+        {/* 탭 전환 버튼 */}
         <div className="px-8 mt-6">
           <div className="grid grid-cols-2 bg-gray-100 p-1 rounded-lg">
             <button
@@ -84,7 +91,7 @@ const Login = () => {
         <div className="p-8 pt-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* 이름 입력 (회원가입일 때만 등장) */}
+            {/* 이름 (회원가입용) */}
             {!isLoginMode && (
               <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
                 <label className="text-xs font-bold text-gray-600 ml-1">이름</label>

@@ -2,81 +2,102 @@ package com.ssafy.robot_server.controller;
 
 import com.ssafy.robot_server.domain.User;
 import com.ssafy.robot_server.repository.UserRepository;
+import com.ssafy.robot_server.security.JwtTokenProvider; // ✅ 여기가 중요! (util 아님)
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/users")
+@Tag(name = "1. 유저 관리", description = "회원가입/로그인 API")
 public class UserController {
 
     @Autowired
     private UserRepository userRepository;
 
-    // 회원가입
-    @PostMapping("/signup")
-    public ResponseEntity<?> signup(@RequestBody User user) {
-        if (userRepository.existsByEmail(user.getEmail())) {
+    @Autowired
+    private JwtTokenProvider jwtTokenProvider;
+
+    // 1. 회원가입
+    @PostMapping
+    @Operation(summary = "회원가입")
+    public ResponseEntity<?> registerUser(@RequestBody User user) {
+        // 이메일 중복 체크
+        if (userRepository.findByEmail(user.getEmail()).isPresent()) {
             return ResponseEntity.badRequest().body("이미 존재하는 이메일입니다.");
         }
-        userRepository.save(user);
-        return ResponseEntity.ok("회원가입 성공");
+        
+        // 유저 저장 (비밀번호 암호화는 나중에 추가 가능)
+        User savedUser = userRepository.save(user);
+        return ResponseEntity.ok(savedUser);
     }
 
-    // 로그인
+    // 2. 로그인
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> data) {
-        String email = data.get("email");
-        String password = data.get("password");
+    @Operation(summary = "로그인")
+    public ResponseEntity<?> login(@RequestBody Map<String, String> request) {
+        String email = request.get("email");
+        String password = request.get("password");
 
-        User user = userRepository.findByEmail(email)
-                .orElse(null);
+        // ✅ Optional 처리: .orElse(null)을 사용하여 안전하게 꺼냄
+        User user = userRepository.findByEmail(email).orElse(null);
 
-        if (user != null && user.getPassword().equals(password)) {
-            // 로그인 성공 시 유저 정보 반환 (비밀번호 제외)
-            user.setPassword(null);
-            return ResponseEntity.ok(user);
+        // 유저가 없거나 비밀번호가 틀리면 401 에러
+        if (user == null || !user.getPassword().equals(password)) {
+            return ResponseEntity.status(401).body("이메일 또는 비밀번호가 잘못되었습니다.");
         }
-        return ResponseEntity.status(401).body("이메일 또는 비밀번호가 잘못되었습니다.");
+
+        // 토큰 생성
+        String token = jwtTokenProvider.createToken(user.getEmail());
+
+        // 결과 반환 (토큰 + 유저정보)
+        Map<String, Object> response = new HashMap<>();
+        response.put("token", token);
+        response.put("user", user);
+
+        return ResponseEntity.ok(response);
     }
 
-    // ✅ 3. 비밀번호 재확인 (설정 페이지 진입용)
+    // 3. 프로필 이름 수정
+    @PutMapping("/{id}/profile")
+    @Operation(summary = "프로필 수정")
+    public ResponseEntity<?> updateProfile(@PathVariable Long id, @RequestBody Map<String, String> request) {
+        User user = userRepository.findById(id).orElse(null);
+        if (user == null) return ResponseEntity.badRequest().body("유저를 찾을 수 없습니다.");
+
+        user.setName(request.get("name"));
+        userRepository.save(user);
+        return ResponseEntity.ok(user);
+    }
+
+    // 4. 비밀번호 확인 (변경 전 본인확인용)
     @PostMapping("/verify-password")
-    public ResponseEntity<?> verifyPassword(@RequestBody Map<String, Object> payload) {
-        Long userId = Long.valueOf(payload.get("userId").toString());
-        String inputPassword = (String) payload.get("password");
+    @Operation(summary = "비밀번호 확인")
+    public ResponseEntity<?> verifyPassword(@RequestBody Map<String, Object> request) {
+        Long userId = Long.valueOf(request.get("userId").toString());
+        String password = (String) request.get("password");
 
         User user = userRepository.findById(userId).orElse(null);
-
-        if (user != null && user.getPassword().equals(inputPassword)) {
-            return ResponseEntity.ok("비밀번호 일치");
+        if (user == null || !user.getPassword().equals(password)) {
+            return ResponseEntity.status(401).body("비밀번호가 일치하지 않습니다.");
         }
-        return ResponseEntity.status(401).body("비밀번호가 일치하지 않습니다.");
+        return ResponseEntity.ok("비밀번호 확인 완료");
     }
 
-    // ✅ 4. 프로필(이름) 변경
-    @PutMapping("/{id}/profile")
-    public ResponseEntity<?> updateProfile(@PathVariable Long id, @RequestBody Map<String, String> payload) {
-        User user = userRepository.findById(id).orElse(null);
-        if (user == null) return ResponseEntity.badRequest().body("유저 없음");
-
-        user.setName(payload.get("name")); // 이름 변경
-        userRepository.save(user); // DB 저장
-        
-        return ResponseEntity.ok(user); // 변경된 유저 정보 반환
-    }
-
-    // ✅ 5. 비밀번호 변경
+    // 5. 비밀번호 변경
     @PutMapping("/{id}/password")
-    public ResponseEntity<?> updatePassword(@PathVariable Long id, @RequestBody Map<String, String> payload) {
+    @Operation(summary = "비밀번호 변경")
+    public ResponseEntity<?> updatePassword(@PathVariable Long id, @RequestBody Map<String, String> request) {
         User user = userRepository.findById(id).orElse(null);
-        if (user == null) return ResponseEntity.badRequest().body("유저 없음");
+        if (user == null) return ResponseEntity.badRequest().body("유저를 찾을 수 없습니다.");
 
-        user.setPassword(payload.get("newPassword")); // 비밀번호 변경
-        userRepository.save(user); // DB 저장
-
-        return ResponseEntity.ok("비밀번호 변경 완료");
+        user.setPassword(request.get("newPassword"));
+        userRepository.save(user);
+        return ResponseEntity.ok("비밀번호가 변경되었습니다.");
     }
 }

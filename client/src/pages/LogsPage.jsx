@@ -1,136 +1,91 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useRobot } from '@/contexts/RobotContext';
-import { FileText, Clock, MapPin, Cat, Trash2, PlusCircle, Calendar } from 'lucide-react';
+import { ClipboardList, Trash2, MapPin, Clock, Search } from 'lucide-react';
+import LogCharts from '@/components/charts/LogCharts'; // ✅ 차트 컴포넌트 추가
 
 const LogsPage = () => {
-  const { logs, addTestLog, deleteLog } = useRobot();
-
-  // ✅ 로그를 날짜별로 그룹화하는 로직
-  const groupedLogs = useMemo(() => {
-    const groups = {};
-    logs.forEach(log => {
-      // 날짜 문자열 추출 (예: 2026. 1. 15.)
-      const dateKey = new Date(log.startTime).toLocaleDateString('ko-KR', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        weekday: 'long'
-      });
-      
-      if (!groups[dateKey]) {
-        groups[dateKey] = [];
-      }
-      groups[dateKey].push(log);
-    });
-    return groups;
-  }, [logs]);
+  const { logs, deleteLog, addTestLog } = useRobot();
 
   return (
-    <div className="space-y-6">
-      {/* 페이지 헤더 */}
-      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="max-w-6xl mx-auto space-y-6 pb-20">
+      
+      {/* 1. 헤더 */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">활동 로그 리포트</h2>
-          <p className="text-sm text-gray-500 mt-1">로봇의 주행 기록과 감지된 이벤트를 날짜별로 확인합니다.</p>
+          <h1 className="text-2xl font-bold text-gray-800">순찰 로그 (Patrol Logs)</h1>
+          <p className="text-sm text-gray-500 mt-1">로봇이 수행한 자율 순찰 기록과 특이사항 리포트입니다.</p>
         </div>
-        
-        {/* 🧪 테스트용 버튼 */}
         <button 
-          onClick={addTestLog}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-black transition-colors"
+          onClick={addTestLog} 
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
         >
-          <PlusCircle size={16} />
-          테스트 로그 생성
+          + 테스트 로그 생성
         </button>
       </div>
 
-      {/* 로그 리스트 (날짜별 그룹) */}
-      <div className="space-y-8">
-        {Object.keys(groupedLogs).length === 0 ? (
-          <div className="text-center py-20 text-gray-400 bg-white rounded-lg border border-dashed">
-            <FileText size={48} className="mx-auto mb-4 opacity-20" />
-            <p>기록된 활동 로그가 없습니다.</p>
-            <p className="text-xs mt-2">상단 버튼을 눌러 테스트 데이터를 만들어보세요.</p>
+      {/* ✅ 2. 차트 영역 (여기에 추가됨!) */}
+      <LogCharts />
+
+      {/* 3. 검색 및 필터 (UI만 존재) */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex gap-3">
+        <div className="relative flex-1">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+          <input type="text" placeholder="로그 검색..." className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500"/>
+        </div>
+        <select className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:border-indigo-500 text-gray-600">
+          <option>전체 보기</option>
+          <option>이상 감지</option>
+          <option>일반 순찰</option>
+        </select>
+      </div>
+
+      {/* 4. 로그 리스트 */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {logs.length === 0 ? (
+          <div className="p-12 text-center text-gray-400 flex flex-col items-center">
+            <ClipboardList size={48} className="mb-3 opacity-20" />
+            <p>아직 생성된 로그가 없습니다.</p>
           </div>
         ) : (
-          Object.entries(groupedLogs).map(([date, dayLogs]) => (
-            <div key={date} className="space-y-4 animate-in slide-in-from-bottom-2 duration-500">
-              
-              {/* 📅 날짜 헤더 */}
-              <div className="flex items-center gap-2 px-1">
-                <Calendar size={18} className="text-indigo-600" />
-                <h3 className="font-bold text-gray-700">{date}</h3>
-                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                  {dayLogs.length}건
-                </span>
-              </div>
+          <div className="divide-y divide-gray-100">
+            {logs.map((log) => (
+              <div key={log.id} className="p-5 hover:bg-gray-50 transition-colors flex flex-col md:flex-row md:items-center gap-4 group">
+                {/* 아이콘 상태 */}
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 
+                  ${log.detectionCount > 0 ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                  <ClipboardList size={24} />
+                </div>
 
-              {/* 해당 날짜의 로그들 */}
-              <div className="space-y-4">
-                {dayLogs.map((log) => (
-                  <div key={log.id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group">
-                    
-                    {/* 삭제 버튼 (우측 상단, 마우스 올리면 표시) */}
-                    <button 
-                      onClick={() => deleteLog(log.id)}
-                      className="absolute top-4 right-4 text-gray-300 hover:text-red-500 p-2 transition-colors opacity-0 group-hover:opacity-100"
-                      title="로그 삭제"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-
-                    {/* 1. 리포트 본문 */}
-                    <div className="p-6 pb-4">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className={`p-2 rounded-lg ${log.mode === '자동 모드' ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-600'}`}>
-                          <FileText size={20} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                            {log.mode}
-                            {log.status === 'completed' ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold border border-green-200">
-                                완료
-                              </span>
-                            ) : (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-bold border border-orange-200">
-                                중단됨
-                              </span>
-                            )}
-                          </h3>
-                          <span className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                            <Clock size={12} /> 
-                            {new Date(log.startTime).toLocaleTimeString()} 시작 
-                            <span className="text-gray-300">|</span> 
-                            {log.duration} 주행
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* 상세 이벤트 내용 */}
-                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 text-sm text-gray-700">
-                        <span className="font-bold text-gray-900 mr-2">📌 이벤트:</span>
-                        {log.details}
-                      </div>
-                    </div>
-
-                    {/* 2. 요약 통계 (하단 바) */}
-                    <div className="grid grid-cols-2 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50/50">
-                      <div className="p-3 flex items-center justify-center gap-2">
-                        <Cat size={14} className="text-gray-400"/>
-                        <span className="text-xs font-medium text-gray-600">감지: <span className="text-gray-900 font-bold">{log.detectionCount}회</span></span>
-                      </div>
-                      <div className="p-3 flex items-center justify-center gap-2">
-                        <MapPin size={14} className="text-gray-400"/>
-                        <span className="text-xs font-medium text-gray-600">이동: <span className="text-gray-900 font-bold">{log.distance}m</span></span>
-                      </div>
-                    </div>
-
+                {/* 내용 */}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold text-gray-800">
+                      {log.mode === 'auto' ? '자동 순찰' : '수동 제어'} 리포트 #{log.id}
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                      log.status === 'completed' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                    }`}>
+                      {log.status === 'completed' ? '완료됨' : '진행중'}
+                    </span>
                   </div>
-                ))}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    <span className="flex items-center gap-1"><Clock size={12}/> {log.duration || '0분'}</span>
+                    <span className="flex items-center gap-1"><MapPin size={12}/> {log.distance || 0}m 이동</span>
+                    {log.detectionCount > 0 && <span className="text-red-500 font-bold">⚠️ 감지 {log.detectionCount}건</span>}
+                  </div>
+                  <p className="text-sm text-gray-600 mt-2">{log.details}</p>
+                </div>
+
+                {/* 삭제 버튼 */}
+                <button 
+                  onClick={() => deleteLog(log.id)}
+                  className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 size={18} />
+                </button>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
     </div>

@@ -1,55 +1,37 @@
 package com.ssafy.robot_server.controller;
 
 import com.ssafy.robot_server.domain.Video;
-import com.ssafy.robot_server.domain.User;
 import com.ssafy.robot_server.repository.VideoRepository;
-import com.ssafy.robot_server.repository.UserRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
-@RequestMapping("/api/videos")
+@RequestMapping("/api/videos") // 👈 프론트엔드가 요청하는 주소와 일치해야 함
+@Tag(name = "4. 영상 관리", description = "특이행동 영상 API")
 public class VideoController {
 
     @Autowired
     private VideoRepository videoRepository;
 
-    @Autowired
-    private UserRepository userRepository;
-
-    // 1. 내 영상 목록 조회
+    // 1. 목록 조회
     @GetMapping
-    public ResponseEntity<?> getMyVideos(@RequestParam Long userId) {
-        User user = userRepository.findById(userId).orElse(null);
-        if (user == null) return ResponseEntity.badRequest().body("유저 없음");
-
-        List<Video> videos = videoRepository.findByUserOrderByTimestampDesc(user);
-        return ResponseEntity.ok(videos);
+    public ResponseEntity<List<Video>> getVideos(@RequestParam Long userId) {
+        return ResponseEntity.ok(videoRepository.findByUserIdOrderByCreatedAtDesc(userId));
     }
 
-    // 2. 영상 저장 (AI 팀 또는 테스트용)
+    // 2. 영상 생성 (이게 없으면 404/403 에러 발생!)
     @PostMapping
-    public ResponseEntity<?> saveVideo(@RequestBody Map<String, Object> payload) {
-        Long userId = Long.valueOf(payload.get("userId").toString());
-        User user = userRepository.findById(userId).orElse(null);
-        if (user == null) return ResponseEntity.badRequest().body("유저 없음");
-
-        Video video = new Video();
-        video.setCatName((String) payload.get("catName"));
-        video.setBehavior((String) payload.get("behavior"));
-        video.setDuration((String) payload.get("duration"));
-        video.setThumbnailUrl((String) payload.get("thumbnailUrl")); // 실제론 S3 URL 등
-        video.setUser(user);
-
-        videoRepository.save(video);
-        return ResponseEntity.ok("영상 저장 완료");
+    @Operation(summary = "영상 생성")
+    public ResponseEntity<Video> createVideo(@RequestBody Video video) {
+        return ResponseEntity.ok(videoRepository.save(video));
     }
 
-    // 3. 영상 삭제
+    // 3. 삭제
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteVideo(@PathVariable Long id) {
         videoRepository.deleteById(id);

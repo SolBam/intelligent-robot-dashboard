@@ -1,6 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'sonner';
+import { Routes, Route, Navigate } from 'react-router-dom'; // ✅ BrowserRouter(Router) 제거됨
 
 // Providers
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
@@ -20,7 +19,7 @@ import LogsPage from '@/pages/LogsPage';
 import NotificationsPage from '@/pages/NotificationsPage';
 import SettingsPage from '@/pages/SettingsPage';
 
-// 보호된 라우트
+// 보호된 라우트 (로그인 안 하면 튕겨내기)
 const ProtectedRoute = ({ children }) => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <div className="h-screen flex items-center justify-center">로딩 중...</div>;
@@ -92,17 +91,18 @@ const AppRoutes = () => {
 
 const App = () => {
   return (
-    // ✅ 순서 중요! AuthProvider가 가장 먼저 와야 다른 Provider들이 user 정보를 쓸 수 있습니다.
+    // ✅ Router와 Toaster는 main.jsx에 있으므로 여기서는 제거했습니다.
     <AuthProvider> 
       <NotificationProvider>
         <RobotProvider>
           <CatProvider>
-            <Router>
-              <div className="min-h-screen bg-gray-50 text-gray-900 font-sans antialiased">
-                <AppRoutes />
-                <Toaster position="top-right" richColors closeButton />
-              </div>
-            </Router>
+            
+            {/* Router 제거됨 */}
+            <div className="min-h-screen bg-gray-50 text-gray-900 font-sans antialiased">
+              <AppRoutes />
+            </div>
+            {/* Router 제거됨 */}
+
           </CatProvider>
         </RobotProvider>
       </NotificationProvider>

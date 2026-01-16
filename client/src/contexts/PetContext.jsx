@@ -1,67 +1,69 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useAuth } from './AuthContext'; // 로그인 정보 가져오기 위해 필요
-import axios from 'axios';
+import { useAuth } from './AuthContext';
+import api from '../api/axios'; // ✅ 우리가 만든 api 객체 사용
 import { toast } from 'sonner';
 
 const CatContext = createContext();
 
 export const CatProvider = ({ children }) => {
-  const { user } = useAuth(); // 현재 로그인한 유저 정보
-  const [cats, setCats] = useState([]); // 초기값은 빈 배열 (조건 1)
+  const { user } = useAuth();
+  const [cats, setCats] = useState([]);
 
-  // ✅ 1. 로그인한 유저가 바뀌면 그 사람의 고양이 목록 불러오기 (조건 3)
+  // 1. 유저 변경 시 목록 불러오기
   useEffect(() => {
     if (user && user.id) {
       fetchCats(user.id);
     } else {
-      setCats([]); // 로그아웃하면 리스트 비우기
+      setCats([]);
     }
   }, [user]);
 
   const fetchCats = async (userId) => {
     try {
-      const res = await axios.get(`/api/cats?userId=${userId}`);
+      // ⚠️ api 객체에는 이미 '/api'가 포함되어 있으므로 '/cats'만 씁니다.
+      const res = await api.get(`/cats?userId=${userId}`);
       setCats(res.data);
     } catch (err) {
       console.error("고양이 목록 불러오기 실패:", err);
     }
   };
 
-  // ✅ 2. 고양이 등록 (DB 저장) (조건 2)
+  // 2. 고양이 등록
   const addCat = async (catData) => {
     if (!user) return;
 
     try {
       // 서버로 데이터 전송 (userId 포함)
-      await axios.post('/api/cats', {
+      await api.post('/cats', {
         ...catData,
         userId: user.id
       });
       
-      // 저장 후 목록 다시 불러오기
-      fetchCats(user.id);
-      toast.success('새 고양이가 DB에 저장되었습니다!');
+      fetchCats(user.id); // 목록 갱신
+      toast.success('새 고양이가 등록되었습니다!');
     } catch (err) {
       console.error("고양이 등록 실패:", err);
       toast.error('등록에 실패했습니다.');
     }
   };
 
-  // ✅ 3. 고양이 삭제
+  // 3. 고양이 삭제
   const deleteCat = async (id) => {
     if (!confirm('정말 삭제하시겠습니까?')) return;
 
     try {
-      await axios.delete(`/api/cats/${id}`);
-      // 삭제 후 목록 갱신
+      // ✅ api.delete 사용 (토큰 자동 첨부)
+      await api.delete(`/cats/${id}`);
+      
       setCats(prev => prev.filter(cat => cat.id !== id));
       toast.info('삭제되었습니다.');
     } catch (err) {
       console.error("삭제 실패:", err);
+      toast.error("삭제 중 오류가 발생했습니다.");
     }
   };
 
-  // (추가) 나중에 AI 팀이 업데이트해줄 상태 변경 함수
+  // (AI 연동용 - 추후 사용)
   const updateCatStatus = (id, status) => {
     setCats(prev => prev.map(cat => 
       cat.id === id ? { ...cat, ...status } : cat

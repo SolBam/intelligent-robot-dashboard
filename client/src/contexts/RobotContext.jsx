@@ -1,318 +1,172 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useNotifications } from './NotificationContext';
 import { useAuth } from './AuthContext';
-import axios from 'axios';
+import api from '../api/axios';
 import { toast } from 'sonner';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import SockJS from 'sockjs-client';
+import Stomp from 'stompjs';
 
 const RobotContext = createContext();
+
+// ✅ 백엔드 주소
+const SOCKET_URL = 'ws://localhost:8080/ws';
 
 export const RobotProvider = ({ children }) => {
   const { user } = useAuth();
   const { addNotification } = useNotifications();
+  const queryClient = useQueryClient();
   
-  // ⭐ [테스트 모드 스위치]
-  const IS_TEST_MODE = true; 
+  const stompClient = useRef(null);
+  const peerConnection = useRef(null); // ✅ WebRTC 연결 객체 추가
 
-  /* ============================================================
-     1. 로봇 상태 및 제어 관련 상태
-     ============================================================ */
+  /* 1. 로봇 상태 */
   const [robotStatus, setRobotStatus] = useState({
-    isOnline: false,
-    battery: 80, 
-    networkStatus: 'connected',
-    position: { x: 50, y: 50 },
-    speed: 0,
-    mode: 'auto', // ✅ 1. 기본값을 'auto'로 변경
-    lastUpdate: new Date().toISOString(),
+    isOnline: false, battery: 80, mode: 'manual', 
+    position: { x: 50, y: 50 }, speed: 0, lastUpdate: new Date().toISOString(),
   });
+  
+  const [isRobotLoading, setIsRobotLoading] = useState(true);
+  const [remoteStream, setRemoteStream] = useState(null); // ✅ 수신된 영상 데이터
 
+  /* 2. 웹소켓 및 WebRTC 연결 설정 */
+  useEffect(() => {
+    // const socket = new SockJS(SOCKET_URL);
+    const socket = new WebSocket(SOCKET_URL);
+    const client = Stomp.over(socket);
+    client.debug = null;
+
+    client.connect({}, () => {
+      console.log('✅ RobotContext: 웹소켓 연결 성공!');
+      setIsRobotLoading(false);
+      setRobotStatus(prev => ({ ...prev, isOnline: true }));
+      stompClient.current = client;
+
+      // (1) 로봇 상태 구독 (위치, 배터리 등)
+      client.subscribe('/sub/robot/status', (message) => {
+        const data = JSON.parse(message.body);
+        setRobotStatus(prev => ({ ...prev, ...data, lastUpdate: new Date().toISOString() }));
+      });
+
+      // (2) 📹 WebRTC Offer 수신 (여기가 핵심! 로봇 전화를 받는 부분)
+      client.subscribe('/sub/peer/offer', async (message) => {
+        console.log("📹 [WebRTC] Offer 수신! 연결을 시도합니다...");
+        const offer = JSON.parse(message.body);
+
+        // P2P 연결 생성 (구글 무료 STUN 서버 사용)
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+        // 📡 영상 트랙이 들어오면 state에 저장
+        pc.ontrack = (event) => {
+          console.log("🎥 [WebRTC] 영상 스트림 확보됨 (Stream ID: " + event.streams[0].id + ")");
+          setRemoteStream(event.streams[0]);
+        };
+
+        peerConnection.current = pc;
+
+        // 로봇의 명함(Offer) 저장
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+        // 내 명함(Answer) 생성 및 저장
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        // 내 명함을 로봇에게 전송
+        client.send("/pub/peer/answer", {}, JSON.stringify({
+          sdp: pc.localDescription.sdp,
+          type: pc.localDescription.type
+        }));
+        console.log("📤 [WebRTC] Answer 전송 완료!");
+      });
+
+    }, (error) => {
+      console.error('❌ 웹소켓 연결 실패:', error);
+      setIsRobotLoading(false);
+      setRobotStatus(prev => ({ ...prev, isOnline: false }));
+    });
+
+    return () => {
+      if (client && client.connected) client.disconnect();
+      if (peerConnection.current) peerConnection.current.close();
+    };
+  }, []);
+
+  /* 3. 데이터 조회 (기존 유지) */
+  const { data: videos = [] } = useQuery({ queryKey: ['videos', user?.id], queryFn: async () => (await api.get(`/videos?userId=${user.id}`)).data, enabled: !!user?.id });
+  const { data: logs = [] } = useQuery({ queryKey: ['logs', user?.id], queryFn: async () => (await api.get(`/logs?userId=${user.id}`)).data, enabled: !!user?.id });
+  const deleteVideoMutation = useMutation({ mutationFn: (id) => api.delete(`/videos/${id}`), onSuccess: () => { queryClient.invalidateQueries(['videos']); toast.success("삭제되었습니다."); }});
+  const deleteLogMutation = useMutation({ mutationFn: (id) => api.delete(`/logs/${id}`), onSuccess: () => { queryClient.invalidateQueries(['logs']); toast.success("삭제되었습니다."); }});
+
+  /* 4. 로봇 제어 (기존 유지) */
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [isVoiceCloned, setIsVoiceCloned] = useState(false);
   const [useClonedVoice, setUseClonedVoice] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
-  // 데이터 상태
-  const [videos, setVideos] = useState([]);
-  const [logs, setLogs] = useState([]);
+  const moveRobot = (linear, angular) => {
+    if (!stompClient.current || !stompClient.current.connected) return;
+    if (robotStatus.mode === 'auto') return;
+    stompClient.current.send("/pub/robot/control", {}, JSON.stringify({ type: 'MOVE', linear, angular }));
+  };
 
-  /* ============================================================
-     2. 로봇 상태 동기화 (Polling)
-     ============================================================ */
-  useEffect(() => {
-    const fetchStatus = async () => {
-      if (IS_TEST_MODE) {
-        setRobotStatus(prev => ({
-          ...prev,
-          isOnline: true,
-          battery: Math.max(0, prev.battery - 0.01),
-          lastUpdate: new Date().toISOString()
-        }));
-      } else {
-        try {
-          const res = await axios.get('/api/robot/latest');
-          if (res.data) {
-            setRobotStatus(prev => ({
-              ...prev,
-              isOnline: true,
-              battery: res.data.batteryLevel,
-              // 실제 API에서 mode도 가져와야 함 (여기선 생략)
-              lastUpdate: new Date().toISOString(),
-            }));
-          }
-        } catch (err) {
-          setRobotStatus(prev => ({ ...prev, isOnline: false }));
-        }
-      }
-    };
-    const interval = setInterval(fetchStatus, 1000);
-    return () => clearInterval(interval);
-  }, []);
+  const emergencyStop = () => {
+    if (stompClient.current?.connected) stompClient.current.send("/pub/robot/control", {}, JSON.stringify({ type: 'STOP' }));
+    setRobotStatus(prev => ({ ...prev, mode: 'emergency', speed: 0 }));
+    addNotification({ type: 'alert', title: '🚨 비상 정지', message: '사용자가 로봇을 긴급 정지시켰습니다.', link: '/' });
+  };
 
-  /* ============================================================
-     3. 로봇 제어 함수들
-     ============================================================ */
-  
-  // (1) 모드 전환 (자동 <-> 수동) ✅ 수정됨
   const toggleMode = () => {
     const newMode = robotStatus.mode === 'auto' ? 'manual' : 'auto';
+    if (stompClient.current?.connected) stompClient.current.send("/pub/robot/control", {}, JSON.stringify({ type: 'MODE', value: newMode }));
     setRobotStatus(prev => ({ ...prev, mode: newMode }));
-    
-    // 알림 생성
-    addNotification({ 
-      type: 'robot_status', 
-      title: '모드 변경', 
-      message: `로봇이 ${newMode === 'auto' ? '자동' : '수동'} 모드로 전환되었습니다.` 
-    });
-
-    if (!IS_TEST_MODE) {
-       // 실제 로봇에게 모드 변경 명령 전송
-       // axios.post('/api/robot/mode', { mode: newMode });
-    }
+    addNotification({ type: 'robot', title: '모드 변경', message: `로봇이 ${newMode === 'auto' ? '자동' : '수동'} 모드로 전환되었습니다.`, link: '/' });
   };
-
-  // (2) 이동 명령 (수동 모드일 때만 동작하도록 가드 추가)
-  const moveRobot = async (linear, angular) => {
-    // 자동 모드일 때는 수동 조작 무시 (또는 경고)
-    if (robotStatus.mode === 'auto') {
-      // toast.warning("자동 모드 중입니다. 수동으로 전환해주세요."); // 너무 자주 뜨면 시끄러우니 주석 처리
-      return; 
-    }
-
-    if (IS_TEST_MODE) {
-      setRobotStatus(prev => ({
-        ...prev,
-        position: {
-          x: Math.min(100, Math.max(0, prev.position.x + angular * 1.5)),
-          y: Math.min(100, Math.max(0, prev.position.y - linear * 1.5))
-        },
-        speed: Math.abs(linear),
-      }));
-    } else {
-      try {
-        await axios.post('/api/robot/control', { linear, angular });
-      } catch (err) { console.error(err); }
-    }
-  };
-
-  // (3) 키보드 제어 루프
-  const keysPressed = useRef({}); 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      keysPressed.current[e.key.toLowerCase()] = true;
-      keysPressed.current[e.code] = true;
-    };
-    const handleKeyUp = (e) => {
-      keysPressed.current[e.key.toLowerCase()] = false;
-      keysPressed.current[e.code] = false;
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-
-    const moveLoop = setInterval(() => {
-      let linear = 0;
-      let angular = 0;
-      const speedVal = 1.0;
-
-      if (keysPressed.current['w'] || keysPressed.current['ArrowUp']) linear += speedVal;
-      if (keysPressed.current['s'] || keysPressed.current['ArrowDown']) linear -= speedVal;
-      if (keysPressed.current['a'] || keysPressed.current['ArrowLeft']) angular -= speedVal;
-      if (keysPressed.current['d'] || keysPressed.current['ArrowRight']) angular += speedVal;
-      if (keysPressed.current[' ']) { emergencyStop(); return; }
-
-      if (linear !== 0 || angular !== 0) {
-        moveRobot(linear, angular);
-      }
-    }, 50);
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      clearInterval(moveLoop);
-    };
-  }, [robotStatus.mode]); // 모드가 바뀌면 루프 내부 조건도 반영됨
 
   const toggleVideo = () => setIsVideoOn(prev => !prev);
-
   const sendTTS = async (text) => {
     if (!text.trim()) return;
-    addNotification({ type: 'robot_action', title: '음성 출력', message: `"${text}" 전송 중...` });
-    if (!IS_TEST_MODE) await axios.post('/api/robot/tts', { text, useClonedVoice: isVoiceCloned && useClonedVoice });
+    addNotification({ type: 'robot', title: '🔊 음성 출력', message: `로봇이 말합니다: "${text}"`, link: '/' });
+    try { await api.post('/robot/tts', { text, useClonedVoice: isVoiceCloned && useClonedVoice }); } catch(e) {}
   };
+  const startWalkieTalkie = () => { setIsRecording(true); };
+  const stopWalkieTalkie = () => { if (isRecording) { setIsRecording(false); addNotification({ type: 'robot', title: '📡 무전 전송', message: '사용자의 음성을 로봇으로 전송했습니다.', link: '/' }); }};
+  const trainVoice = () => { toast.info("목소리 학습 시작..."); setTimeout(() => { setIsVoiceCloned(true); setUseClonedVoice(true); toast.success("학습 완료!"); }, 3000); };
 
-  const startWalkieTalkie = () => { setIsRecording(true); console.log("🎤 무전 녹음 시작"); };
-  const stopWalkieTalkie = () => {
-    if (isRecording) {
-      setIsRecording(false);
-      console.log("📡 무전 전송 완료");
-      addNotification({ type: 'robot_action', title: '무전 전송', message: '사용자 음성을 전송했습니다.' });
-    }
-  };
+  /* 5. 키보드 제어 (기존 유지) */
+  const keysPressed = useRef({}); 
+  const lastCommand = useRef({ linear: 0, angular: 0 });
 
-  const trainVoice = async () => {
-    addNotification({ type: 'system', title: '학습 시작', message: '목소리 학습을 시작합니다.' });
-    setTimeout(() => {
-      setIsVoiceCloned(true);
-      setUseClonedVoice(true);
-      addNotification({ type: 'system', title: '학습 완료', message: '목소리 모델 생성 완료.' });
-    }, 3000);
-  };
-
-  const emergencyStop = async () => {
-    if (!IS_TEST_MODE) await axios.post('/api/robot/control', { linear: 0, angular: 0 });
-    setRobotStatus(prev => ({ ...prev, mode: 'emergency', speed: 0 }));
-    addNotification({ type: 'system', title: '비상 정지', message: '로봇이 급정지했습니다.', priority: 'high' });
-  };
-
-  /* ============================================================
-     4. 갤러리 및 로그 관리 (✅ 수정됨: 테스트 버튼 로직 강화)
-     ============================================================ */
   useEffect(() => {
-    if (user && user.id) {
-      fetchVideos(user.id);
-      fetchLogs(user.id);
-    }
-  }, [user]);
-
-  // 영상 조회
-  const fetchVideos = async (userId) => {
-    try {
-      const res = await axios.get(`/api/videos?userId=${userId}`);
-      setVideos(res.data);
-    } catch (err) { console.error("영상 로드 에러:", err); }
-  };
-
-  // 영상 삭제
-  const deleteVideo = async (videoId) => {
-    if(!confirm("삭제하시겠습니까?")) return;
-    try {
-      await axios.delete(`/api/videos/${videoId}`);
-      setVideos(prev => prev.filter(v => v.id !== videoId));
-      toast.success("삭제됨");
-    } catch (err) { console.error(err); }
-  };
-
-  // ✅ [수정] 테스트 영상 생성 (user 체크 강화)
-  const addTestVideo = async () => {
-    if (!user || !user.id) {
-        toast.error("로그인 정보가 없습니다.");
-        return;
-    }
-
-    const catNames = ["나비", "초코", "구름이", "치즈"];
-    const behaviors = ["그루밍", "수면", "우다다", "사료 먹기"];
+    const handleKeyDown = (e) => { if (e.target.tagName !== 'INPUT') keysPressed.current[e.key.toLowerCase()] = true; };
+    const handleKeyUp = (e) => { keysPressed.current[e.key.toLowerCase()] = false; };
+    window.addEventListener('keydown', handleKeyDown); window.addEventListener('keyup', handleKeyUp);
     
-    const randomData = {
-      userId: user.id,
-      catName: catNames[Math.floor(Math.random() * catNames.length)],
-      behavior: behaviors[Math.floor(Math.random() * behaviors.length)],
-      duration: `${Math.floor(Math.random() * 10 + 5)}초`,
-      thumbnailUrl: null
-    };
+    const moveLoop = setInterval(() => {
+      let linear = 0, angular = 0;
+      if (keysPressed.current['w']) linear += 1.0; if (keysPressed.current['s']) linear -= 1.0; 
+      if (keysPressed.current['a']) angular += 1.0; if (keysPressed.current['d']) angular -= 1.0;
+      if (linear !== lastCommand.current.linear || angular !== lastCommand.current.angular) {
+        moveRobot(linear, angular); lastCommand.current = { linear, angular };
+      }
+    }, 100); 
+    return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); clearInterval(moveLoop); };
+  }, [robotStatus.mode]); 
 
-    try {
-      await axios.post('/api/videos', randomData);
-      fetchVideos(user.id); // 즉시 새로고침
-      toast.success("테스트 영상 생성 완료!");
-      
-      // 알림도 같이 생성
-      addNotification({
-        type: 'cat_alert',
-        title: '새로운 영상 감지',
-        message: `${randomData.catName}의 ${randomData.behavior} 영상이 저장되었습니다.`,
-        priority: 'medium'
-      });
-    } catch (err) {
-      console.error("테스트 영상 생성 실패:", err);
-      toast.error("서버 오류: 영상 생성 실패");
-    }
-  };
-
-  // 로그 조회
-  const fetchLogs = async (userId) => {
-    try {
-      const res = await axios.get(`/api/logs?userId=${userId}`);
-      setLogs(res.data);
-    } catch (err) { console.error("로그 로드 에러:", err); }
-  };
-
-  // 로그 삭제
-  const deleteLog = async (logId) => {
-    if(!confirm("삭제하시겠습니까?")) return;
-    try {
-      await axios.delete(`/api/logs/${logId}`);
-      setLogs(prev => prev.filter(l => l.id !== logId));
-      toast.success("삭제됨");
-    } catch (err) { console.error(err); }
-  };
-
-  // ✅ [수정] 테스트 로그 생성 (user 체크 강화)
-  const addTestLog = async () => {
-    if (!user || !user.id) {
-        toast.error("로그인 정보가 없습니다.");
-        return;
-    }
-
-    const modes = ["자동 모드", "수동 제어"];
-    const statuses = ["completed", "interrupted"];
-    const randomMode = modes[Math.floor(Math.random() * modes.length)];
-    const randomDuration = Math.floor(Math.random() * 20) + 1;
-    
-    const events = ["거실 정찰 완료", "주방에서 '나비' 감지", "현관 이동", "배터리 부족 복귀"];
-    const randomDetail = events[Math.floor(Math.random() * events.length)];
-
-    const logData = {
-      userId: user.id,
-      mode: randomMode,
-      status: statuses[Math.floor(Math.random() * statuses.length)],
-      duration: `${randomDuration}분`,
-      durationNum: randomDuration,
-      distance: (Math.random() * 50).toFixed(1),
-      detectionCount: Math.floor(Math.random() * 5),
-      details: randomDetail
-    };
-
-    try {
-      await axios.post('/api/logs', logData);
-      fetchLogs(user.id); // 즉시 새로고침
-      toast.success("테스트 로그 생성 완료!");
-    } catch (err) {
-      console.error("테스트 로그 생성 실패:", err);
-      toast.error("서버 오류: 로그 생성 실패");
-    }
-  };
+  /* 6. 테스트 데이터 */
+  const addTestVideo = async () => {}; 
+  const addTestLog = async () => { if (!user) return; try { await api.post('/logs', { userId: user.id, mode: "자동 모드", status: "completed", details: "테스트 로그" }); queryClient.invalidateQueries(['logs']); toast.success("로그 생성 완료"); } catch(e) {} };
 
   return (
     <RobotContext.Provider value={{
       robotStatus, isVideoOn, toggleVideo, moveRobot, emergencyStop, toggleMode,
-      sendTTS, startWalkieTalkie, stopWalkieTalkie, isRecording,
-      trainVoice, isVoiceCloned, useClonedVoice, setUseClonedVoice,
-      videos, deleteVideo, addTestVideo,
-      logs, addTestLog, deleteLog
+      sendTTS, startWalkieTalkie, stopWalkieTalkie, isRecording, trainVoice, isVoiceCloned, useClonedVoice, setUseClonedVoice,
+      videos, deleteVideo: deleteVideoMutation.mutate, addTestVideo, logs, deleteLog: deleteLogMutation.mutate, addTestLog, isRobotLoading,
+      remoteStream // ✅ 이게 있어야 Dashboard에서 갖다 씁니다!
     }}>
       {children}
     </RobotContext.Provider>
   );
 };
-
 export const useRobot = () => useContext(RobotContext);

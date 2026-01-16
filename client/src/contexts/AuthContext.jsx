@@ -1,107 +1,103 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api/axios'; // 토큰이 필요한 요청용
+import axios from 'axios';      // ✅ 토큰 없는 순수 요청용 (새로 추가)
+import { toast } from 'sonner';
 
 const AuthContext = createContext();
 
+// ✅ 백엔드 주소 직접 정의 (순수 axios용)
+const BASE_URL = 'http://localhost:8080/api';
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
+  // 1. 초기 로드 (새로고침 시 로그인 유지)
   useEffect(() => {
-    // 새로고침해도 로그인 유지
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+    const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('token');
+    if (storedUser && storedToken) {
+      setUser(JSON.parse(storedUser));
     }
-    setIsLoading(false);
+    setLoading(false);
   }, []);
 
-  // ✅ 진짜 로그인 (서버 통신)
+  // 2. 로그인
   const login = async (email, password) => {
     try {
-      const res = await axios.post('/api/users/login', { email, password });
-      if (res.status === 200) {
-        const userData = res.data;
-        setUser(userData);
-        localStorage.setItem('currentUser', JSON.stringify(userData));
-        return true;
-      }
-    } catch (error) {
-      console.error("로그인 실패:", error);
-      return false;
-    }
-    return false;
-  };
-
-  // ✅ 진짜 회원가입 (서버 통신)
-  const signup = async (email, password, name) => {
-    try {
-      const res = await axios.post('/api/users/signup', { email, password, name });
-      if (res.status === 200) {
-        return true; // 성공
-      }
-    } catch (error) {
-      console.error("회원가입 실패:", error);
-      return false;
-    }
-  };
-
-  // ✅ 비밀번호 재확인 함수
-  const verifyUserPassword = async (password) => {
-    if (!user) return false;
-    try {
-      const res = await axios.post('/api/users/verify-password', {
-        userId: user.id,
-        password: password
-      });
-      return res.status === 200;
-    } catch (error) {
-      console.error("비밀번호 검증 실패:", error);
-      return false;
-    }
-  };
-
-  // ✅ 1. 프로필(이름) 변경 요청
-  const updateProfile = async (newName) => {
-    if (!user) return false;
-    try {
-      const res = await axios.put(`/api/users/${user.id}/profile`, { name: newName });
+      // ✅ api 대신 axios 사용 (옛날 토큰 간섭 방지)
+      const response = await axios.post(`${BASE_URL}/users/login`, { email, password });
       
-      // 화면과 로컬스토리지의 정보도 즉시 갱신 (새로고침 안 해도 바뀌게)
+      const { token, user: userData } = response.data;
+      
+      // 토큰 저장
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+      
+      toast.success(`${userData.name}님 환영합니다!`);
+      return true;
+    } catch (error) {
+      console.error("로그인 에러:", error);
+      toast.error("로그인 실패: 이메일이나 비밀번호를 확인하세요.");
+      return false;
+    }
+  };
+
+  // 3. 회원가입 (추가됨)
+  const register = async (userData) => {
+    try {
+      // ✅ 여기도 순수 axios 사용! 토큰 없이 요청 보냄
+      await axios.post(`${BASE_URL}/users`, userData);
+      
+      toast.success("회원가입 성공! 로그인해주세요.");
+      return true;
+    } catch (error) {
+      console.error("회원가입 에러:", error);
+      toast.error("회원가입 실패: 서버 연결을 확인하세요.");
+      return false;
+    }
+  };
+
+  // 4. 로그아웃
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+    toast.info("로그아웃 되었습니다.");
+  };
+
+  // 프로필 수정 등은 기존 api 객체 사용 (토큰 필요하니까)
+  const updateProfile = async (newName) => {
+    try {
+      await api.put(`/users/${user.id}/profile`, { name: newName });
       const updatedUser = { ...user, name: newName };
       setUser(updatedUser);
-      localStorage.setItem('currentUser', JSON.stringify(updatedUser));
-      
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      toast.success("프로필 이름이 변경되었습니다.");
       return true;
     } catch (error) {
-      console.error("프로필 수정 실패:", error);
+      toast.error("프로필 수정 실패");
       return false;
     }
   };
 
-  // ✅ 2. 비밀번호 변경 요청
-  const updatePassword = async (newPassword) => {
-    if (!user) return false;
+  const changePassword = async (currentPassword, newPassword) => {
     try {
-      await axios.put(`/api/users/${user.id}/password`, { newPassword });
+      await api.post('/users/verify-password', { userId: user.id, password: currentPassword });
+      await api.put(`/users/${user.id}/password`, { newPassword });
+      toast.success("비밀번호 변경 완료. 다시 로그인해주세요.");
+      logout();
       return true;
     } catch (error) {
-      console.error("비밀번호 변경 실패:", error);
+      toast.error("비밀번호 변경 실패");
       return false;
     }
-  };
-
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('currentUser');
   };
 
   return (
-    <AuthContext.Provider value={{
-        user, login, signup, logout, isLoading,
-        verifyUserPassword, updateProfile, updatePassword
-        }}>
-      {children}
+    <AuthContext.Provider value={{ user, login, register, logout, loading, updateProfile, changePassword }}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
