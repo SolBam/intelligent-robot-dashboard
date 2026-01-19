@@ -26,11 +26,11 @@ public class SignalingController {
 
     // 2. Answer 수신 (Web -> Robot)
     // 🚨 수정: String -> Map<String, Object>
-    @MessageMapping("/peer/answer")
-    public void processAnswer(@Payload Map<String, Object> answer) {
-        System.out.println("📹 [WebRTC] Answer 수신 (From Web)");
-        messagingTemplate.convertAndSend("/sub/peer/answer", answer);
-    }
+    // @MessageMapping("/peer/answer")
+    // public void processAnswer(@Payload Map<String, Object> answer) {
+    //     System.out.println("📹 [WebRTC] Answer 수신 (From Web)");
+    //     messagingTemplate.convertAndSend("/sub/peer/answer", answer);
+    // }
 
     // 3. Candidate 교환 (Web <-> Robot)
     // 🚨 수정: String -> Map<String, Object>

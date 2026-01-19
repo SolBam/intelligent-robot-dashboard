@@ -11,11 +11,13 @@ server/build/
 server/.gradle/
 server/bin/
 server/out/
+server/*.log
 .gradletasknamecache
 
 # --- Client (React / Vite) ---
 client/node_modules/
 client/dist/
+client/build
 client/.env
 client/.env.local
 
@@ -33,5 +35,6 @@ mosquitto/log/
 postgres_data/
 
 # --- Environment & Logs ---
+*.pem
 .env
 *.log

@@ -45,7 +45,15 @@ export const RobotProvider = ({ children }) => {
       // (1) 로봇 상태 구독 (위치, 배터리 등)
       client.subscribe('/sub/robot/status', (message) => {
         const data = JSON.parse(message.body);
-        setRobotStatus(prev => ({ ...prev, ...data, lastUpdate: new Date().toISOString() }));
+        setRobotStatus(prev => ({
+          ...prev,
+          isOnline: true,
+          battery: data.batteryLevel !== undefined ? data.batteryLevel : prev.battery,
+          position: (data.x !== undefined && data.y !== undefined)
+                    ? {x: data.x, y: data.y}
+                    : prev.position,
+          lastUpdate: new Date().toISOString()
+        }));
       });
 
       // (2) 📹 WebRTC Offer 수신 (여기가 핵심! 로봇 전화를 받는 부분)

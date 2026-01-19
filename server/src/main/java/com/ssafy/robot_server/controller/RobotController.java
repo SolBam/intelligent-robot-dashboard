@@ -1,77 +1,69 @@
 package com.ssafy.robot_server.controller;
 
+import com.ssafy.robot_server.domain.RobotStatus;
 import com.ssafy.robot_server.dto.RobotCommand;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.ssafy.robot_server.repository.RobotStatusRepository;
+import com.ssafy.robot_server.service.MqttService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Controller;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @Controller
+@RequiredArgsConstructor // 생성자 주입 자동화
 public class RobotController {
 
-    @Autowired
-    private SimpMessagingTemplate messagingTemplate;
+    private final SimpMessagingTemplate messagingTemplate;
+    private final RobotStatusRepository robotStatusRepository; // ✅ DB 저장소 추가
+    private final MqttService mqttService;
 
-    // 로봇의 현재 상태 (메모리에 저장)
-    private double x = 50.0; // 지도 중앙 (0~100)
-    private double y = 50.0;
-    private double battery = 100.0;
-    private String mode = "manual";
-    
-    // 현재 속도
-    private double currentLinear = 0.0;
-    private double currentAngular = 0.0;
-
-    // 1. 프론트엔드 명령 수신 (W,A,S,D 누르면 여기로 옴)
+    // 1. 프론트엔드 명령 수신 (웹 -> 로봇)
+    // 웹에서 보낸 명령을 그대로 로봇(Python)에게 토스합니다.
     @MessageMapping("/robot/control")
     public void handleControl(RobotCommand command) {
         System.out.println("🕹️ 명령 수신: " + command.getType());
+        
+        // 파이썬 로봇이 구독 중인 주소로 명령 전달
+        messagingTemplate.convertAndSend("/sub/robot/control", command);
 
-        if ("MOVE".equals(command.getType())) {
-            this.currentLinear = command.getLinear();
-            this.currentAngular = command.getAngular();
-        } else if ("STOP".equals(command.getType())) {
-            this.currentLinear = 0;
-            this.currentAngular = 0;
-        } else if ("MODE".equals(command.getType())) {
-            this.mode = command.getValue();
-        }
+        String jsonCommand = String.format(
+            "{\"type\":\"%s\", \"linear\":%f, \"angular\":%f}",
+            command.getType(), command.getLinear(), command.getAngular()
+        );
+        mqttService.sendCommand("/robot/control", jsonCommand);
     }
 
-    // 2. 0.1초마다 로봇 상태 업데이트 및 방송 (시뮬레이션)
-    @Scheduled(fixedRate = 100) // 100ms 마다 실행
-    public void broadcastRobotStatus() {
-        // (1) 위치 계산 (단순 시뮬레이션)
-        // 속도가 있을 때만 위치 이동
-        if (currentLinear != 0 || currentAngular != 0) {
-            // 회전은 x, y 좌표 이동 방향에 영향을 줌 (간소화해서 구현)
-            x -= currentAngular * 0.5; 
-            y -= currentLinear * 0.5;  // 화면상 위쪽이 y 감소
+    // 2. 로봇 상태 수신 (로봇 -> 서버 -> DB & 웹)
+    // 파이썬 로봇이 1초마다 이 주소로 자기 상태를 보냅니다.
+    @MessageMapping("/robot/status")
+    @Transactional
+    public void handleStatus(Map<String, Object> statusData) {
+        // (1) 데이터 파싱
+        Double battery = Double.valueOf(statusData.get("battery").toString());
+        Map<String, Double> position = (Map<String, Double>) statusData.get("position");
+        Double x = Double.valueOf(position.get("x").toString());
+        Double y = Double.valueOf(position.get("y").toString());
+        String mode = (String) statusData.get("mode");
 
-            // 지도 밖으로 나가지 않게 막기 (0~100)
-            x = Math.max(0, Math.min(100, x));
-            y = Math.max(0, Math.min(100, y));
+        // (2) ✅ DB에 저장 (영구 기록)
+        RobotStatus statusEntity = new RobotStatus(battery, x, y, mode);
+        robotStatusRepository.save(statusEntity);
 
-            // 배터리 소모
-            battery -= 0.01;
-        }
-
-        // (2) 상태 메시지 생성
-        Map<String, Object> status = new HashMap<>();
-        status.put("isOnline", true);
-        status.put("mode", mode);
-        status.put("battery", Math.round(battery * 10) / 10.0);
+        // (3) 웹 대시보드로 실시간 전달 (화면 갱신용)
+        messagingTemplate.convertAndSend("/sub/robot/status", statusData);
         
-        Map<String, Double> position = new HashMap<>();
-        position.put("x", x);
-        position.put("y", y);
-        status.put("position", position);
+        // 로그 확인용
+        // System.out.println("💾 DB 저장 완료: 배터리=" + battery + "%");
+    }
 
-        // (3) 구독자 모두에게 발송 (/sub/robot/status)
-        messagingTemplate.convertAndSend("/sub/robot/status", status);
+    // 👇👇 [여기 추가!] 웹의 답장(Answer)을 로봇(MQTT)에게 전달 👇👇
+    @MessageMapping("/peer/answer")
+    public void handleAnswer(String answerJson) {
+        System.out.println("📡 WebRTC Answer 수신 (웹 -> 로봇)");
+        // 로봇이 듣고 있는 MQTT 주제로 쏩니다.
+        mqttService.sendCommand("/robot/peer/answer", answerJson);
     }
 }

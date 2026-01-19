@@ -2,15 +2,16 @@ services:
   robot_db:
     image: postgres:15
     container_name: robot_db
+    restart: always
     environment:
       POSTGRES_DB: robot_db
-      POSTGRES_USER: ssafy
-      POSTGRES_PASSWORD: ssafy_password
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: always
+      # 👇 [수정됨] 앞에 './'를 붙여서 "내 눈에 보이는 폴더"에 저장하도록 변경
+      - ./postgres_data:/var/lib/postgresql/data
 
   robot_mqtt:
     image: eclipse-mosquitto:2.0
@@ -19,10 +20,12 @@ services:
       - "1883:1883"
       - "9001:9001"
     volumes:
+      # 여기도 상대 경로(./)가 잘 되어 있으니 유지합니다.
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     restart: always
 
-volumes:
-  postgres_data:
+# 👇 [삭제] 맨 아래 이 부분은 이제 필요 없으니 지우세요!
+# volumes:
+#   postgres_data:
